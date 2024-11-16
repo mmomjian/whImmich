@@ -1,0 +1,2 @@
+# whImmich
+Immich webhook server
