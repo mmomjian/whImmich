@@ -1,0 +1,23 @@
+name: whimmich
+
+services:
+  whimmich:
+    hostname: whimmich
+    container_name: whimmich
+    restart: unless-stopped
+    user: '1000:1000' # can be set to whatever you like, if you make the /log folder bind mount owned by the user
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    build: '.'
+    environment:
+      IMMICH_API_KEY: 'API_KEY_HERE'
+      IMMICH_URL: 'http://immich.domain.tld'
+      IMMICH_ALBUM_ID: 'ALBUM_ID_HERE'
+      WHIMMICH_WEBHOOK_MODE: 'other' # set to immich-frame, immich-kiosk, or other
+    ports:
+      - 8178:8178
+    volumes:
+      - '/etc/localtime:/etc/localtime:ro'
+      - './log:/log'
