@@ -1,7 +1,6 @@
 import requests
 import os
 import signal
-import sys
 import logging
 import sys
 import json
