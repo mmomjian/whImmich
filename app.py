@@ -76,7 +76,7 @@ def webhook():
     asset_id = []
     if WEBHOOK_MODE == 'immich-frame':
         log.debug(f"using immich-frame compatability mode (single layer JSON) with key {JSON_ASSETID_KEY}")
-        asset_id = [ data.get(JSON_ASSETID_KEY) ]
+        asset_id.append(data.get(JSON_ASSETID_KEY))
     elif WEBHOOK_MODE == 'immich-kiosk':
         log.debug("kiosk compatibility mode (JSON with subarray) with key {JSON_ASSETID_KEY} and subkey {JSON_ASSETID_SUBKEY}")
         for id_slice in data.get(JSON_ASSETID_KEY):
