@@ -17,10 +17,10 @@ EXPOSE 8178
 
 ENV PYTHONUNBUFFERED=1
 ENV WHIMMICH_PORT=8178
-ENV WHIMMICH_SUBPATH=''
+ENV WHIMMICH_JSON_PATH=/logs
 
 HEALTHCHECK --interval=1m --timeout=3s --retries=3 \
-  CMD curl -fsS http://127.0.0.1:$WHIMMICH_PORT$WHIMMICH_SUBPATH/health || exit 1
+  CMD curl -fsS http://127.0.0.1:$WHIMMICH_PORT${WHIMMICH_SUBPATH-}/health || exit 1
 
 COPY app.py /app
 
