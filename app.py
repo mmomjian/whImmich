@@ -152,11 +152,12 @@ def check_env():
 
 if __name__ == '__main__':
     log.info("whImmich starting up")
-    check_env()
 
     # Set up signal handling for graceful shutdown
     signal.signal(signal.SIGINT, handle_shutdown_signal)  # For Ctrl+C (SIGINT)
     signal.signal(signal.SIGTERM, handle_shutdown_signal) # For docker stop (SIGTERM)
+
+    check_env()
 
     port = int(os.environ.get("WHIMMICH_PORT", 5000))
     host = os.environ.get("WHIMMICH_HOST", "0.0.0.0")
