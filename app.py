@@ -31,11 +31,17 @@ IMMICH_API_KEY = os.environ.get("IMMICH_API_KEY", "")
 IMMICH_URL = os.environ.get("IMMICH_URL", "")
 IMMICH_ALBUM_ID = os.environ.get("IMMICH_ALBUM_ID", "")
 JSON_PATH = os.environ.get("WHIMMICH_JSON_PATH", "") # no logging if not specified
-WEBHOOK_MODE = os.environ.get("WHIMMICH_WEBHOOK_MODE", "")
-JSON_ACCEPT_KEY = os.environ.get("WHIMMICH_JSON_ACCEPT_KEY", "")
-JSON_ACCEPT_VALUE = os.environ.get("WHIMMICH_JSON_ACCEPT_VALUE", "")
+HOOK_MODE = os.environ.get("WHIMMICH_HOOK_MODE", "")
 JSON_ASSETID_KEY = os.environ.get("WHIMMICH_JSON_ASSETID_KEY", "")
+JSON_ACCEPT_VALUE = os.environ.get("WHIMMICH_JSON_ACCEPT_VALUE", "")
+JSON_ACCEPT_KEY = os.environ.get("WHIMMICH_JSON_ACCEPT_KEY", "")
+
 JSON_ASSETID_SUBKEY = os.environ.get("WHIMMICH_JSON_ASSETID_SUBKEY", "")
+SUBPATH = os.environ.get("WHIMMICH_SUBPATH", "")
+
+FRAME_ACCEPT_KEY = "Name"
+FRAME_ACCEPT_VALUE = "ImageRequestedNotification"
+FRAME_ASSETID_KEY = "RequestedImageId"
 
 app = Flask(__name__)
 log.debug("Flask app initialized")
@@ -53,8 +59,8 @@ def log_file_contents(file_dir, data):
     except Exception as e:
         log.error(f"Error writing to file {file_path}: {e}")
 
-@app.route(os.environ.get("WHIMMICH_HOOK_WEBPATH",'/webhook'), methods=['POST'])
-def webhook():
+@app.route(f"{SUBPATH}/hook", methods=['POST'])
+def hook():
     data = request.json # Get the JSON data from the request
 
     # Print the received payload to stdout
@@ -73,25 +79,31 @@ def webhook():
     else:
         log.debug("JSON_ACCEPT_KEY and/or JSON_ACCEPT_VALUE not set, subscribing to all events")
 
-    asset_id = []
-    if WEBHOOK_MODE == 'immich-frame':
+    global last_asset , last_time
+    last_asset = []
+    if HOOK_MODE == 'immich-frame':
         log.debug(f"using immich-frame compatability mode (single layer JSON) with key {JSON_ASSETID_KEY}")
-        asset_id.append(data.get(JSON_ASSETID_KEY))
-    elif WEBHOOK_MODE == 'immich-kiosk':
+        last_asset.append(data.get(JSON_ASSETID_KEY))
+    elif HOOK_MODE == 'immich-kiosk':
         log.debug("kiosk compatibility mode (JSON with subarray) with key {JSON_ASSETID_KEY} and subkey {JSON_ASSETID_SUBKEY}")
         for id_slice in data.get(JSON_ASSETID_KEY):
-            asset_id.append(id_slice.get(JSON_ASSET_ID_SUBKEY))
+            last_asset.append(id_slice.get(JSON_ASSET_ID_SUBKEY))
     else:
         log.debug("no compatibility mode set, using default")
 
     # Ensure payload contains assetId
-    if not asset_id:
+    if not last_asset:
         log.error(f"previous payload did not contain '{JSON_ASSETID_KEY}")
         return jsonify({"status": "error", "message": f"Missing '{JSON_ASSETID_KEY}' in payload"}), 400
 
-    log.info(f"Identified asset {asset_id}. Continuing with processing.")
+    log.debug(f"Identified asset {last_asset}. Continuing with processing.")
 
-    return add_to_album(asset_id)
+    return add_to_album(last_asset)
+
+@app.route(f"{SUBPATH}/last", methods=['GET'])
+def last():
+    log.info(f"last asset requested, returning {asset}")
+    return jsonify({ "ids": last_asset, "timestamp": last_time }), 200
 
 def call_immich(payload, suburl):
     try:
@@ -123,7 +135,7 @@ def set_favorite(asset_ids):
     return call_immich(payload, '/assets')
 
 # Health check route
-@app.route(os.environ.get("WHIMMICH_HEALTH_WEBPATH",'/health'), methods=['GET'])
+@app.route(f"{SUBPATH}/health", methods=['GET'])
 def health_check():
     log.debug("responding to healthcheck endpoint")
     return jsonify({"status": "healthy"}), 200
@@ -145,15 +157,23 @@ def check_env():
     if not JSON_PATH:
         log.warning("JSON_PATH not set, logging disabled")
 
-    match WEBHOOK_MODE:
+    if SUBPATH and (not SUBPATH.startswith('/') or SUBPATH.endswith('/')):
+        log.fatal(f"invalid subpath specified. SUPATH={SUBPATH}. exiting")
+
+    match HOOK_MODE:
         case "immich-frame":
             log.info("using immich-frame compatibility mode")
+            global JSON_ASSETID_KEY , JSON_ACCEPT_VALUE , JSON_ACCEPT_KEY
+            JSON_ASSETID_KEY = FRAME_ASSETID_KEY
+            JSON_ACCEPT_VALUE = FRAME_ACCEPT_VALUE
+            JSON_ACCEPT_KEY = FRAME_ACCEPT_KEY
+            log.debug(f"JSON_ACCEPT_KEY={JSON_ACCEPT_KEY} - JSON_ACCEPT_VALUE={JSON_ACCEPT_VALUE} - JSON_ASSETID_KEY='{JSON_ASSETID_KEY}")
         case "immich-kiosk":
             log.info("using immich-kiosk compatiblity mode")
         case "other":
             log.warning("Using 'other' compatbility mode, results are untested")
         case _:
-            log.fatal(f"WHIMMICH_WEBHOOK_MODE={WEBHOOK_MODE} unknown, exiting. Please set this variable to a supported value")
+            log.fatal(f"WHIMMICH_HOOK_MODE={HOOK_MODE} unknown, exiting. Please set this variable to a supported value")
             sys.exit(1)
     log.debug("Completed environment variable checks")
 
@@ -166,9 +186,11 @@ if __name__ == '__main__':
 
     check_env()
 
+    print(f"{JSON_ACCEPT_VALUE} - {JSON_ACCEPT_KEY}")
+
     port = int(os.environ.get("WHIMMICH_PORT", 5000))
     host = os.environ.get("WHIMMICH_HOST", "0.0.0.0")
-    log.debug(f"collected startup info, host {host}, port {port}")
+    log.debug(f"collected startup info, host {host}, port {port}, subhook path='{SUBPATH}'")
 
     # Start serving the Flask app with Waitress
     serve(app, host=host, port=port)
