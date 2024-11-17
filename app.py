@@ -39,6 +39,7 @@ JSON_ASSETID_KEY = os.environ.get("WHIMMICH_JSON_ASSETID_KEY", "")
 JSON_ACCEPT_VALUE = os.environ.get("WHIMMICH_JSON_ACCEPT_VALUE", "")
 JSON_ACCEPT_KEY = os.environ.get("WHIMMICH_JSON_ACCEPT_KEY", "")
 LOG_ROTATE_HOURS = int(os.environ.get("WHIMMICH_LOG_ROTATE_HOURS", "168"))
+LOG_IP_TO_FILENAME = bool(os.environ.get("WHIMMICH_LOG_IP_TO_FILENAME", False))
 
 JSON_ASSETID_SUBKEY = os.environ.get("WHIMMICH_JSON_ASSETID_SUBKEY", "")
 SUBPATH = os.environ.get("WHIMMICH_SUBPATH", "")
@@ -53,11 +54,14 @@ CLEANUP_INTERVAL = 60  # Interval in seconds (e.g., 3600 seconds = 1 hour)
 app = Flask(__name__)
 log.debug("Flask app initialized")
 
-def log_file_contents(file_partial, data):
+def log_file_contents(file_partial, data, ip):
     if not JSON_PATH:
         return
     date = datetime.now().strftime('%Y-%m-%d')
-    file_path = f"{JSON_PATH}/{file_partial}_{date}.txt"
+    file_path = f"{JSON_PATH}/{date}_{file_partial}"
+    if LOG_IP_TO_FILENAME:
+        file_path += f"_{ip}"
+    file_path += ".txt"
     log.debug(f"attempting to log to {file_path}")
     try:
         with open(file_path, 'a') as file:  # Append mode to not overwrite
@@ -77,7 +81,7 @@ def hook():
 
     # Print the received payload to stdout
     log.debug(f"Received webhook data from IP {ip}: {data}")
-    log_file_contents("incoming", { "received_json": data, "received_time": time, "ip_source": ip} )
+    log_file_contents("incoming", { "received_json": data, "received_time": time, "ip_source": ip}, ip )
 
     # Check if the JSON payload contains "Name": "ImageRequestedNotification"
     if JSON_ACCEPT_KEY and JSON_ACCEPT_VALUE: # only look for certain events
