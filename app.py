@@ -76,7 +76,7 @@ def hook():
     data = request.json # Get the JSON data from the request
 
     time_unix = time.time()
-    time_pretty = datetime.fromtimestamp(time_unix).strftime("%Y-%m-%d %H:%M:%S")
+    time_pretty = pretty_time(time_unix)
     ip = request.remote_addr  # Get the IP address of the client
     assets = []
 
@@ -125,8 +125,14 @@ def hook():
 
 @app.route(f"{SUBPATH}/last", methods=['GET'])
 def last():
-    log.info(f"last asset requested, returning {last_assets}")
-    return jsonify(last_assets), 200
+    try:
+        log.info(f"last asset requested, returning {last_assets}")
+        reply_json = last_assets
+        reply_json['status'] = 'success'
+        return jsonify(reply_json), 200
+    except Exception as e:
+        log.error(f"unable to return last asset. Possibly no images received yet?")
+        return jsonify({ "status": "failure", "failure_message": "No last asset found. Possible first startup?"}), 500
 
 def call_immich(payload, suburl):
     if not IMMICH_API_KEY or not IMMICH_URL:
@@ -174,13 +180,18 @@ def health_check():
             except Exception as e:
                 log.error(f"Error during log cleanup: {e}")
         health_reply["last_cleanup_unix"] = last_cleanup_time
-        health_reply["last_cleanup"] = datetime.fromtimestamp(last_cleanup_time).strftime("%Y-%m-%d %H:%M:%S")
+        health_reply["last_cleanup"] = pretty_time(last_cleanup_time)
 
     return jsonify(health_reply), 200
 
 def handle_shutdown_signal(signum, frame):
     log.info("Shutdown signal received. Gracefully shutting down...")
     sys.exit(0)
+
+def pretty_time(timestamp):
+    if timestamp <= 0:  # Handle invalid or unset timestamps
+        return "Never"
+    return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
 
 def check_env():
     # Check for required or recommended env vars
