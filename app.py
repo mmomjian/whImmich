@@ -6,7 +6,6 @@ import sys
 import json
 import time
 import glob
-from datetime import datetime
 
 from flask import Flask, request, jsonify
 from waitress import serve
@@ -57,7 +56,8 @@ log.debug("Flask app initialized")
 def log_file_contents(file_partial, data, ip):
     if not JSON_PATH:
         return
-    date = datetime.now().strftime('%Y-%m-%d')
+    date = time.strftime('%Y-%m-%d', time.localtime(time.time()))
+#    date = datetime.now().strftime('%Y-%m-%d')
     file_path = f"{JSON_PATH}/{date}_{file_partial}"
     if LOG_IP_TO_FILENAME:
         file_path += f"_{ip}"
@@ -191,7 +191,8 @@ def handle_shutdown_signal(signum, frame):
 def pretty_time(timestamp):
     if timestamp <= 0:  # Handle invalid or unset timestamps
         return "Never"
-    return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp))
+#    return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
 
 def check_env():
     # Check for required or recommended env vars
