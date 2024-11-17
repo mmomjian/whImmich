@@ -75,13 +75,18 @@ def log_file_contents(file_partial, data, ip):
 def hook():
     data = request.json # Get the JSON data from the request
 
-    time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    time_unix = time.time()
+    time_pretty = datetime.fromtimestamp(time_unix).strftime("%Y-%m-%d %H:%M:%S")
     ip = request.remote_addr  # Get the IP address of the client
     assets = []
 
     # Print the received payload to stdout
     log.debug(f"Received webhook data from IP {ip}: {data}")
-    log_file_contents("incoming", { "received_json": data, "received_time": time, "ip_source": ip}, ip )
+    add_fields = { "received_time": time_pretty, "received_time_unix": time_unix, "ip_source": ip }
+    send_log = { "received_json": data }
+    send_log |= add_fields
+
+    log_file_contents("incoming", send_log, ip )
 
     # Check if the JSON payload contains "Name": "ImageRequestedNotification"
     if JSON_ACCEPT_KEY and JSON_ACCEPT_VALUE: # only look for certain events
@@ -93,15 +98,16 @@ def hook():
     else:
         log.debug("JSON_ACCEPT_KEY and/or JSON_ACCEPT_VALUE not set, subscribing to all events")
 
-    if HOOK_MODE == 'immich-frame':
-        log.debug(f"using immich-frame compatability mode (single layer JSON) with key {JSON_ASSETID_KEY}")
-        assets.append(data.get(JSON_ASSETID_KEY))
-    elif HOOK_MODE == 'immich-kiosk':
-        log.debug("kiosk compatibility mode (JSON with subarray) with key {JSON_ASSETID_KEY} and subkey {JSON_ASSETID_SUBKEY}")
-        for id_slice in data.get(JSON_ASSETID_KEY):
-            assets.append(id_slice.get(JSON_ASSET_ID_SUBKEY))
-    else:
-        log.debug("no compatibility mode set, using default")
+    match HOOK_MODE:
+        case 'immich-frame':
+            log.debug(f"using immich-frame compatability mode (single layer JSON) with key {JSON_ASSETID_KEY}")
+            assets.append(data.get(JSON_ASSETID_KEY))
+        case 'immich-kiosk':
+            log.debug("kiosk compatibility mode (JSON with subarray) with key {JSON_ASSETID_KEY} and subkey {JSON_ASSETID_SUBKEY}")
+            for id_slice in data.get(JSON_ASSETID_KEY):
+                assets.append(id_slice.get(JSON_ASSET_ID_SUBKEY))
+        case _:
+            log.debug("no compatibility mode set, using default")
 
     # Ensure payload contains assetId
     if not assets:
@@ -111,7 +117,8 @@ def hook():
     log.debug(f"Identified asset {assets}. Continuing with processing.")
 
     global last_assets
-    last_assets = { "assets": assets, "received_time": time, "ip": ip }
+    last_assets = { "assets": assets }
+    last_assets |= add_fields
 
     set_favorite(assets)
     return add_to_album(assets)
@@ -122,9 +129,11 @@ def last():
     return jsonify(last_assets), 200
 
 def call_immich(payload, suburl):
+    if not IMMICH_API_KEY or not IMMICH_URL:
+        return
     try:
         headers = {
-            "x-api-key": f"{IMMICH_API_KEY}",
+            "x-api-key": IMMICH_API_KEY,
             "Content-Type": "application/json"
         }
         log.debug(f"headers: {headers}, payload: {payload}")
@@ -164,6 +173,7 @@ def health_check():
                 cleanup_logs(JSON_PATH)  # Run the log cleanup
             except Exception as e:
                 log.error(f"Error during log cleanup: {e}")
+        health_reply["last_cleanup_unix"] = last_cleanup_time
         health_reply["last_cleanup"] = datetime.fromtimestamp(last_cleanup_time).strftime("%Y-%m-%d %H:%M:%S")
 
     return jsonify(health_reply), 200
@@ -176,8 +186,7 @@ def check_env():
     # Check for required or recommended env vars
     log.debug("Beginning environment variable checks")
     if not IMMICH_API_KEY or not IMMICH_URL:
-        log.fatal("IMMICH_API_KEY and IMMICH_URL must be set as environment variables.")
-        sys.exit(1)
+        log.error("IMMICH_API_KEY or IMMICH_URL is not provided. Logging will be to local files only")
 
     if not IMMICH_ALBUM_ID:
         log.warning("no IMMICH_ALBUM_ID provided")
@@ -232,7 +241,8 @@ if __name__ == '__main__':
 
     check_env()
 
-    cleanup_logs(JSON_PATH)
+    if JSON_PATH:
+        cleanup_logs(JSON_PATH)
     port = int(os.environ.get("WHIMMICH_PORT", 5000))
     host = os.environ.get("WHIMMICH_HOST", "0.0.0.0")
     log.debug(f"collected startup info, host {host}, port {port}, subhook path='{SUBPATH}'")
