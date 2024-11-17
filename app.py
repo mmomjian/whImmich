@@ -93,27 +93,34 @@ def webhook():
 
     return add_to_album(asset_id)
 
-def add_to_album(asset_id):
+def call_immich(payload, suburl):
     try:
-        # Make a PUT request to add the asset to the album
         headers = {
             "x-api-key": f"{IMMICH_API_KEY}",
             "Content-Type": "application/json"
         }
-        payload = {"ids": asset_id}
         log.debug(f"headers: {headers}, payload: {payload}")
-        response = requests.put(f"{IMMICH_URL}/api/albums/{IMMICH_ALBUM_ID}/assets", json=payload, headers=headers)
-
+        response = requests.put(f"{IMMICH_URL}/api{suburl}", json=payload, headers=headers)
         if response.status_code == 200:
-            log.info(f"Successfully added asset {asset_id} to album {IMMICH_ALBUM_ID}.")
-            return jsonify({"status": "success", "message": "Asset added to album successfully"}), 200
+            log.debug(f"Successfully called {suburl} with {payload}.")
+            return jsonify({"status": "success", "message": "Asset processed successfully"}), 200
         else:
-            log.error(f"Failed to add asset to album. Status code: {response.status_code}, Response: {response.text}")
-            return jsonify({"status": "error", "message": "Failed to add asset to album"}), response.status_code
+            log.error(f"Failed to process asset. Status code: {response.status_code}, Response: {response.text}")
+            return jsonify({"status": "error", "message": "Failed to process asset"}), response.status_code
 
     except requests.exceptions.RequestException as e:
         log.error(f"Error interacting with Immich API: {e}")
         return jsonify({"status": "error", "message": "Internal server error"}), 500
+
+def add_to_album(asset_ids):
+    log.info(f"adding asset {asset_ids} to album {IMMICH_ALBUM_ID}")
+    payload = {"ids": asset_ids}
+    return call_immich(payload, f'/albums/{IMMICH_ALBUM_ID}/assets')
+
+def set_favorite(asset_ids):
+    log.info(f"setting assets {asset_ids} as favorites")
+    payload = {"ids": asset_ids, "isFavorite": true}
+    return call_immich(payload, '/assets')
 
 # Health check route
 @app.route(os.environ.get("WHIMMICH_HEALTH_WEBPATH",'/health'), methods=['GET'])
