@@ -60,7 +60,6 @@ def log_file_contents(file_partial, data, ip):
     if not JSON_PATH:
         return
     date = time.strftime('%Y-%m-%d', time.localtime(time.time()))
-#    date = datetime.now().strftime('%Y-%m-%d')
     file_path = f"{JSON_PATH}/{date}_{file_partial}"
     if LOG_IP_TO_FILENAME:
         file_path += f"_{ip}"
