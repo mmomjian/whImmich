@@ -38,6 +38,7 @@ HOOK_MODE = os.environ.get("WHIMMICH_HOOK_MODE", "other")
 JSON_ASSETID_KEY = os.environ.get("WHIMMICH_JSON_ASSETID_KEY", "")
 JSON_ACCEPT_VALUE = os.environ.get("WHIMMICH_JSON_ACCEPT_VALUE", "")
 JSON_ACCEPT_KEY = os.environ.get("WHIMMICH_JSON_ACCEPT_KEY", "")
+LOG_ROTATE_HOURS = int(os.environ.get("WHIMMICH_LOG_ROTATE_HOURS", "168"))
 
 JSON_ASSETID_SUBKEY = os.environ.get("WHIMMICH_JSON_ASSETID_SUBKEY", "")
 SUBPATH = os.environ.get("WHIMMICH_SUBPATH", "")
@@ -201,12 +202,12 @@ def check_env():
             sys.exit(1)
     log.debug("Completed environment variable checks")
 
-def cleanup_logs(log_dir, max_age_seconds=3600 * 24 * 7):  # 7 days
+def cleanup_logs(log_dir, max_age_seconds=3600 * LOG_ROTATE_HOURS):
     if not log_dir:
         log.debug("cleanup logs called, but no path specified. skipping")
         return
     now = time.time()
-    log.debug("beginning log cleanup")
+    log.debug(f"beginning log cleanup, cleaning up all files over {LOG_ROTATE_HOURS} hours mod time")
     for file_path in glob.glob(f"{log_dir}/*.txt"):
         if os.path.getmtime(file_path) < (now - max_age_seconds):
             try:
