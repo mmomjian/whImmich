@@ -40,15 +40,18 @@ JSON_ACCEPT_KEY = os.environ.get("WHIMMICH_JSON_ACCEPT_KEY", "")
 LOG_ROTATE_HOURS = int(os.environ.get("WHIMMICH_LOG_ROTATE_HOURS", "168"))
 LOG_IP_TO_FILENAME = bool(os.environ.get("WHIMMICH_LOG_IP_TO_FILENAME", False))
 
+all_assets = []
+
 JSON_ASSETID_SUBKEY = os.environ.get("WHIMMICH_JSON_ASSETID_SUBKEY", "")
 SUBPATH = os.environ.get("WHIMMICH_SUBPATH", "")
 
 FRAME_ACCEPT_KEY = "Name"
 FRAME_ACCEPT_VALUE = "ImageRequestedNotification"
 FRAME_ASSETID_KEY = "RequestedImageId"
+KEEP_ASSET_LIST = 3
 
 last_cleanup_time = 0  # Global variable to store the last cleanup timestamp
-CLEANUP_INTERVAL = 60  # Interval in seconds (e.g., 3600 seconds = 1 hour)
+CLEANUP_INTERVAL = 60  # Interval in minutes
 
 app = Flask(__name__)
 log.debug("Flask app initialized")
@@ -61,7 +64,7 @@ def log_file_contents(file_partial, data, ip):
     file_path = f"{JSON_PATH}/{date}_{file_partial}"
     if LOG_IP_TO_FILENAME:
         file_path += f"_{ip}"
-    file_path += ".txt"
+    file_path += ".log"
     log.debug(f"attempting to log to {file_path}")
     try:
         with open(file_path, 'a') as file:  # Append mode to not overwrite
@@ -70,6 +73,13 @@ def log_file_contents(file_partial, data, ip):
             log.debug(f"Logged payload to file: {file_path}")
     except Exception as e:
         log.error(f"Error writing to file {file_path}: {e}")
+
+def hook_accept_key_value(data_hook, key, value):
+    if data_hook.get(key) == value:
+        log.debug(f"{key} matches {value}, in hook_accept_key_value, returning True")
+        return True
+    log.debug("returning false from hook_accept_key_value")
+    return False
 
 @app.route(f"{SUBPATH}/hook", methods=['POST'])
 def hook():
@@ -90,9 +100,7 @@ def hook():
 
     # Check if the JSON payload contains "Name": "ImageRequestedNotification"
     if JSON_ACCEPT_KEY and JSON_ACCEPT_VALUE: # only look for certain events
-        if data.get(JSON_ACCEPT_KEY) == JSON_ACCEPT_VALUE:
-            log.debug(f"payload '{JSON_ACCEPT_KEY}' is '{JSON_ACCEPT_VALUE}', continuing")
-        else:
+        if not hook_accept_key_value(data, JSON_ACCEPT_KEY, JSON_ACCEPT_VALUE):
             log.warning(f"Webhook payload ignored. '{JSON_ACCEPT_KEY}' is not '{JSON_ACCEPT_VALUE}''.")
             return jsonify({"status": "ignored", "message": f"'{JSON_ACCEPT_KEY}' is not '{JSON_ACCEPT_VALUE}'"}), 200
     else:
@@ -116,32 +124,68 @@ def hook():
 
     log.debug(f"Identified asset {assets}. Continuing with processing.")
 
-    global last_assets
-    last_assets = { "assets": assets }
-    last_assets |= add_fields
+    rotate_assets(assets, add_fields)
 
     set_favorite(assets)
     return add_to_album(assets)
 
-@app.route(f"{SUBPATH}/last", methods=['GET'])
-def last():
+def rotate_assets(ids, add):
+    global all_assets
+    current_assets = { "assets": ids }
+    current_assets |= add
+    all_assets.append(current_assets)
+    del all_assets[:-KEEP_ASSET_LIST]
+    return
+
+def get_asset(list, pos):
+    if not isinstance(pos, int) or not pos < 0:
+        raise ValueError("Position must be a string ('newest', 'second_newest') or an integer.")
+    if len(list) < abs(pos):
+        raise IndexError(f"Position {pos} does not exist in the list of size {len(list)}.")
+    return list[pos]
+
+def get_file(n):
     try:
-        log.info(f"last asset requested, returning {last_assets}")
-        reply_json = last_assets
+        log.debug(f"{n} asset requested, searching")
+        reply_json = get_asset(all_assets, n)
         reply_json['status'] = 'success'
         return jsonify(reply_json), 200
-    except Exception as e:
-        log.error(f"unable to return last asset. Possibly no images received yet?")
+    except (IndexError, ValueError) as e:
+        log.error(f"unable to return last asset. Possibly no images received yet? Error {e}")
         return jsonify({ "status": "failure", "failure_message": "No last asset found. Possible first startup?"}), 500
 
+@app.route(f"{SUBPATH}/history", methods=['POST'])
+def history():
+    data = request.json
+    if 'offset' not in data:
+        return jsonify({"error": "Missing 'offset' in the request body"}), 400
+    file_number = data.get('offset')
+    return get_file(file_number)
+
+@app.route(f"{SUBPATH}/last", methods=['GET'])
+def last():
+    return get_file(-2)
+
+@app.route(f"{SUBPATH}/current", methods=['GET'])
+def current():
+    return get_file(-1)
+
+def immich_headers(apikey):
+    if not immich_enabled():
+        return None
+    return { "x-api-key": apikey, "Content-Type": "application/json" }
+
+def immich_enabled():
+    if IMMICH_API_KEY and IMMICH_URL:
+        return True
+    return False
+
 def call_immich(payload, suburl):
-    if not IMMICH_API_KEY or not IMMICH_URL:
-        return
+    if not immich_enabled():
+        return None
     try:
-        headers = {
-            "x-api-key": IMMICH_API_KEY,
-            "Content-Type": "application/json"
-        }
+        headers = immich_headers(IMMICH_API_KEY)
+
         log.debug(f"headers: {headers}, payload: {payload}")
         response = requests.put(f"{IMMICH_URL}/api{suburl}", json=payload, headers=headers)
         if response.status_code == 200:
@@ -166,19 +210,29 @@ def set_favorite(asset_ids):
     log.debug(payload)
 #    return call_immich(payload, '/assets')
 
+def logs_enabled():
+    if JSON_PATH:
+        log.debug("returning True from logs_enabled")
+        return True
+    log.debug("returning False from logs_enabled")
+    return False
+
+def log_cleanup_due(last_arg):
+    current_time = time.time()
+    if logs_enabled() and current_time - last_arg >= CLEANUP_INTERVAL*60:
+        log.info(f"{CLEANUP_INTERVAL} minutes has passed since the last cleanup.")
+        return True
+    log.debug("returning False from log_cleanup_due")
+    return False
+
 # Health check route
 @app.route(f"{SUBPATH}/health", methods=['GET'])
 def health_check():
     log.debug("responding to healthcheck endpoint")
     health_reply = { "status": "healthy" }
-    current_time = time.time()  # Current timestamp in seconds
-    if JSON_PATH:
-        if current_time - last_cleanup_time >= CLEANUP_INTERVAL*60:
-            log.info(f"{CLEANUP_INTERVAL} minutes has passed since the last cleanup. Running log cleanup.")
-            try:
-                cleanup_logs(JSON_PATH)  # Run the log cleanup
-            except Exception as e:
-                log.error(f"Error during log cleanup: {e}")
+
+    cleanup_logs(JSON_PATH)  # Run the log cleanup
+    if logs_enabled():
         health_reply["last_cleanup_unix"] = last_cleanup_time
         health_reply["last_cleanup"] = pretty_time(last_cleanup_time)
 
@@ -192,7 +246,6 @@ def pretty_time(timestamp):
     if timestamp <= 0:  # Handle invalid or unset timestamps
         return "Never"
     return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp))
-#    return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
 
 def check_env():
     # Check for required or recommended env vars
@@ -228,19 +281,22 @@ def check_env():
     log.debug("Completed environment variable checks")
 
 def cleanup_logs(log_dir, max_age_seconds=3600 * LOG_ROTATE_HOURS):
-    if not log_dir:
-        log.debug("cleanup logs called, but no path specified. skipping")
+    global last_cleanup_time
+    if not log_dir or not logs_enabled():
+        log.debug("cleanup logs called, but no path specified or disabled. skipping")
+        return
+    if not log_cleanup_due(last_cleanup_time):
+        log.debug(" in cleanup_logs: cleanup not due")
         return
     now = time.time()
     log.debug(f"beginning log cleanup, cleaning up all files over {LOG_ROTATE_HOURS} hours mod time")
-    for file_path in glob.glob(f"{log_dir}/*.txt"):
+    for file_path in glob.glob(f"{log_dir}/*.log"):
         if os.path.getmtime(file_path) < (now - max_age_seconds):
             try:
                 os.remove(file_path)
                 log.info(f"Deleted old log file: {file_path}")
             except Exception as e:
                 log.error(f"Error deleting file {file_path}: {e}")
-    global last_cleanup_time
     last_cleanup_time = now  # Update the last cleanup time
 
 
@@ -253,8 +309,7 @@ if __name__ == '__main__':
 
     check_env()
 
-    if JSON_PATH:
-        cleanup_logs(JSON_PATH)
+    cleanup_logs(JSON_PATH)
     port = int(os.environ.get("WHIMMICH_PORT", 5000))
     host = os.environ.get("WHIMMICH_HOST", "0.0.0.0")
     log.debug(f"collected startup info, host {host}, port {port}, subhook path='{SUBPATH}'")
