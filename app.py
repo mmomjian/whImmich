@@ -54,6 +54,8 @@ DISABLE_DOUBLE = os.environ.get("WHIMMICH_DISABLE_DOUBLE", "false").lower() in b
 last_cleanup_time = 0  # Global variable to store the last cleanup timestamp
 CLEANUP_INTERVAL = 60  # Interval in minutes
 all_assets = []
+DEFAULT_CLIENT = 'unknown_client'
+DISABLE_CLIENT_TRACKING = os.environ.get("WHIMMICH_DISABLE_CLIENT_TRACKING", "false").lower() in bool_accept
 
 app = Flask(__name__)
 log.debug("Flask app initialized")
@@ -82,10 +84,16 @@ def hook_accept_key_value(data_hook, key, value):
     log.debug("returning false from hook_accept_key_value")
     return False
 
+def return_client(request):
+    if not DISABLE_CLIENT_TRACKING:
+        return request.args.get('client', default=DEFAULT_CLIENT)
+    else:
+        return None
+
 @app.route(f"{SUBPATH}/hook", methods=['POST'])
 def hook():
     data = request.json # Get the JSON data from the request
-    client = request.args.get('client', default=None)
+    client = return_client(request)
 
     time_unix = time.time()
     time_pretty = pretty_time(time_unix)
@@ -94,9 +102,10 @@ def hook():
 
     # Print the received payload to stdout
     log.debug(f"Received webhook data from IP {ip}: {data}")
-    add_fields = { "received_time": time_pretty, "received_time_unix": time_unix, "client_ip": ip, "client_json": [ data ], "client_url_arg": client, "multi_delay": None }
-#    if client:
-#      add_fields |= { "client_url_arg": client }
+    add_fields = { "received_time": time_pretty, "received_time_unix": time_unix, "client_ip": ip, "client_json": [ data ], "multi_delay": None }
+    if client:
+        add_fields |= { "client": client }
+        
     send_log = { "client_json": data }
     send_log |= add_fields
 
@@ -128,12 +137,12 @@ def hook():
 
     log.debug(f"Identified asset {assets}. Continuing with processing.")
 
-    rotate_assets(assets, add_fields)
+    rotate_assets(assets, add_fields, client)
 
     set_favorite(assets)
     return add_to_album(assets)
 
-def rotate_assets(ids, add):
+def rotate_assets(ids, add, client):
     global all_assets
     current_assets = { "assets": ids }
     current_assets |= add
@@ -145,7 +154,6 @@ def rotate_assets(ids, add):
       log.debug(f"time difference: {time_diff} seconds")
       if time_diff < DOUBLE_DELAY:
           log.debug("time difference identified, processing as duplicate")
-#          all_assets[-1].setdefault("additional_files", []).append(current_assets)
           all_assets[-1]['assets'].extend(current_assets['assets'])
           all_assets[-1]['client_json'].extend(current_assets['client_json']) # extend will add to existing list
           all_assets[-1]['multi_delay'] = time_diff
