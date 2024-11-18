@@ -32,26 +32,28 @@ log.debug("reading in initial env vars")
 IMMICH_API_KEY = os.environ.get("IMMICH_API_KEY", "")
 IMMICH_URL = os.environ.get("IMMICH_URL", "")
 IMMICH_ALBUM_ID = os.environ.get("IMMICH_ALBUM_ID", "")
+
+SUBPATH = os.environ.get("WHIMMICH_SUBPATH", "")
 JSON_PATH = os.environ.get("WHIMMICH_JSON_PATH", "") # no logging if not specified
 HOOK_MODE = os.environ.get("WHIMMICH_HOOK_MODE", "other")
-JSON_ASSETID_KEY = os.environ.get("WHIMMICH_JSON_ASSETID_KEY", "")
+LOG_ROTATE_HOURS = int(os.environ.get("WHIMMICH_LOG_ROTATE_HOURS", 168))
+
+bool_accept = [ "true", "1", "yes", 1, True ]
+LOG_IP_TO_FILENAME = os.environ.get("WHIMMICH_LOG_IP_TO_FILENAME", "false").lower() in bool_accept
+
 JSON_ACCEPT_VALUE = os.environ.get("WHIMMICH_JSON_ACCEPT_VALUE", "")
 JSON_ACCEPT_KEY = os.environ.get("WHIMMICH_JSON_ACCEPT_KEY", "")
-LOG_ROTATE_HOURS = int(os.environ.get("WHIMMICH_LOG_ROTATE_HOURS", "168"))
-LOG_IP_TO_FILENAME = bool(os.environ.get("WHIMMICH_LOG_IP_TO_FILENAME", False))
-
-all_assets = []
-
+JSON_ASSETID_KEY = os.environ.get("WHIMMICH_JSON_ASSETID_KEY", "")
 JSON_ASSETID_SUBKEY = os.environ.get("WHIMMICH_JSON_ASSETID_SUBKEY", "")
-SUBPATH = os.environ.get("WHIMMICH_SUBPATH", "")
 
-FRAME_ACCEPT_KEY = "Name"
-FRAME_ACCEPT_VALUE = "ImageRequestedNotification"
-FRAME_ASSETID_KEY = "RequestedImageId"
-KEEP_ASSET_LIST = 3
+KEEP_ASSET_LIST = int(os.environ.get("WHIMMICH_KEEP_ASSET_LIST", 10))
+
+DOUBLE_DELAY = float(os.environ.get("WHIMMICH_DOUBLE_DELAY", 0.3))
+DISABLE_DOUBLE = os.environ.get("WHIMMICH_DISABLE_DOUBLE", "false").lower() in bool_accept
 
 last_cleanup_time = 0  # Global variable to store the last cleanup timestamp
 CLEANUP_INTERVAL = 60  # Interval in minutes
+all_assets = []
 
 app = Flask(__name__)
 log.debug("Flask app initialized")
@@ -83,6 +85,7 @@ def hook_accept_key_value(data_hook, key, value):
 @app.route(f"{SUBPATH}/hook", methods=['POST'])
 def hook():
     data = request.json # Get the JSON data from the request
+    client = request.args.get('client', default=None)
 
     time_unix = time.time()
     time_pretty = pretty_time(time_unix)
@@ -91,8 +94,10 @@ def hook():
 
     # Print the received payload to stdout
     log.debug(f"Received webhook data from IP {ip}: {data}")
-    add_fields = { "received_time": time_pretty, "received_time_unix": time_unix, "ip_source": ip }
-    send_log = { "received_json": data }
+    add_fields = { "received_time": time_pretty, "received_time_unix": time_unix, "client_ip": ip, "client_json": [ data ], "client_url_arg": client, "multi_delay": None }
+#    if client:
+#      add_fields |= { "client_url_arg": client }
+    send_log = { "client_json": data }
     send_log |= add_fields
 
     log_file_contents("incoming", send_log, ip )
@@ -132,6 +137,20 @@ def rotate_assets(ids, add):
     global all_assets
     current_assets = { "assets": ids }
     current_assets |= add
+
+    if DOUBLE_DELAY and len(all_assets) > 0 and not DISABLE_DOUBLE:
+      if not all_assets[-1]["client_ip"] == current_assets["client_ip"] or not all_assets[-1]["client_url_arg"] == current_assets["client_url_arg"]:
+        log.debug("second image appears to be from a different IP, skipping")
+      time_diff = time.time() - all_assets[-1]['received_time_unix']
+      log.debug(f"time difference: {time_diff} seconds")
+      if time_diff < DOUBLE_DELAY:
+          log.debug("time difference identified, processing as duplicate")
+#          all_assets[-1].setdefault("additional_files", []).append(current_assets)
+          all_assets[-1]['assets'].extend(current_assets['assets'])
+          all_assets[-1]['client_json'].extend(current_assets['client_json']) # extend will add to existing list
+          all_assets[-1]['multi_delay'] = time_diff
+          return
+
     all_assets.append(current_assets)
     del all_assets[:-KEEP_ASSET_LIST]
     return
@@ -154,12 +173,16 @@ def get_file(n):
         return jsonify({ "status": "failure", "failure_message": "No last asset found. Possible first startup?"}), 500
 
 @app.route(f"{SUBPATH}/history", methods=['POST'])
-def history():
+def history_post():
     data = request.json
     if 'offset' not in data:
         return jsonify({"error": "Missing 'offset' in the request body"}), 400
     file_number = data.get('offset')
     return get_file(file_number)
+
+@app.route(f"{SUBPATH}/history", methods=['GET'])
+def history_get():
+    return jsonify(all_assets), 200
 
 @app.route(f"{SUBPATH}/last", methods=['GET'])
 def last():
@@ -244,7 +267,7 @@ def handle_shutdown_signal(signum, frame):
 def pretty_time(timestamp):
     if timestamp <= 0:  # Handle invalid or unset timestamps
         return "Never"
-    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp))
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp)) # currently prints the pretty time in local time with no TZ included
 
 def check_env():
     # Check for required or recommended env vars
@@ -265,10 +288,11 @@ def check_env():
     match HOOK_MODE:
         case "immich-frame":
             log.info("using immich-frame compatibility mode")
-            global JSON_ASSETID_KEY , JSON_ACCEPT_VALUE , JSON_ACCEPT_KEY
-            JSON_ASSETID_KEY = FRAME_ASSETID_KEY
-            JSON_ACCEPT_VALUE = FRAME_ACCEPT_VALUE
-            JSON_ACCEPT_KEY = FRAME_ACCEPT_KEY
+            global JSON_ASSETID_KEY , JSON_ACCEPT_VALUE , JSON_ACCEPT_KEY , DOUBLE_DELAY
+            JSON_ASSETID_KEY = "RequestedImageId"
+            JSON_ACCEPT_VALUE = "ImageRequestedNotification"
+            JSON_ACCEPT_KEY = "Name"
+            DOUBLE_DELAY = 0.3
             log.debug(f"JSON_ACCEPT_KEY={JSON_ACCEPT_KEY} - JSON_ACCEPT_VALUE={JSON_ACCEPT_VALUE} - JSON_ASSETID_KEY='{JSON_ASSETID_KEY}")
         case "immich-kiosk":
             log.info("using immich-kiosk compatiblity mode")
@@ -279,8 +303,9 @@ def check_env():
             sys.exit(1)
     log.debug("Completed environment variable checks")
 
-def cleanup_logs(log_dir, max_age_seconds=3600 * LOG_ROTATE_HOURS):
+def cleanup_logs(log_dir, max_age_hours = LOG_ROTATE_HOURS):
     global last_cleanup_time
+    max_age_seconds = 3600 * max_age_hours
     if not log_dir or not logs_enabled():
         log.debug("cleanup logs called, but no path specified or disabled. skipping")
         return
