@@ -45,6 +45,8 @@ JSON_ACCEPT_VALUE = os.environ.get("WHIMMICH_JSON_ACCEPT_VALUE", "")
 JSON_ACCEPT_KEY = os.environ.get("WHIMMICH_JSON_ACCEPT_KEY", "")
 JSON_ASSETID_KEY = os.environ.get("WHIMMICH_JSON_ASSETID_KEY", "")
 JSON_ASSETID_SUBKEY = os.environ.get("WHIMMICH_JSON_ASSETID_SUBKEY", "")
+JSON_NEWASSET_VALUE = os.environ.get("WHIMMICH_JSON_NEWASSET_VALUE", "")
+JSON_PREFETCH_VALUE = os.environ.get("WHIMMICH_JSON_PREFETCH_VALUE", "")
 
 KEEP_ASSET_LIST = int(os.environ.get("WHIMMICH_KEEP_ASSET_LIST", 10))
 
@@ -53,9 +55,14 @@ DISABLE_DOUBLE = os.environ.get("WHIMMICH_DISABLE_DOUBLE", "false").lower() in b
 
 last_cleanup_time = 0  # Global variable to store the last cleanup timestamp
 CLEANUP_INTERVAL = 60  # Interval in minutes
-all_assets = []
-DEFAULT_CLIENT = 'unknown_client'
-DISABLE_CLIENT_TRACKING = os.environ.get("WHIMMICH_DISABLE_CLIENT_TRACKING", "false").lower() in bool_accept
+all_assets = {}
+next_asset = {}
+DEFAULT_CLIENT = 'unknown'
+# DISABLE_CLIENT_TRACKING = os.environ.get("WHIMMICH_DISABLE_CLIENT_TRACKING", "false").lower() in bool_accept
+
+JSON_UNAUTH = 'unauthorized'
+JSON_SUCCESS = 'success'
+JSON_ERROR = 'error'
 
 app = Flask(__name__)
 log.debug("Flask app initialized")
@@ -77,18 +84,53 @@ def log_file_contents(file_partial, data, ip):
     except Exception as e:
         log.error(f"Error writing to file {file_path}: {e}")
 
-def hook_accept_key_value(data_hook, key, value):
-    if data_hook.get(key) == value:
+def hook_accept_key_value(data_hook, key, value_arg):
+    if not isinstance(value_arg, list):
+      value = [ value_arg ]
+    else:
+      value = value_arg
+    if data_hook.get(key) in value:
         log.debug(f"{key} matches {value}, in hook_accept_key_value, returning True")
         return True
     log.debug("returning false from hook_accept_key_value")
     return False
 
 def return_client(request):
-    if not DISABLE_CLIENT_TRACKING:
-        return request.args.get('client', default=DEFAULT_CLIENT)
-    else:
-        return None
+#    if not DISABLE_CLIENT_TRACKING:
+    client = req_client(request)
+    if client:
+      return client
+    return DEFAULT_CLIENT
+
+def init_client(name):
+  if not all_assets.get(name, None):
+    all_assets[name] = []
+  if not next_asset.get(name, None):
+    next_asset[name] = []
+  return
+
+def req_client(request):
+    if request.method == 'POST':
+      client = request.json.get('client', None)
+      if client:
+        init_client(client)
+        return client
+#    elif request.method == 'GET':
+    # fallback to GET url args, even if POST
+    client = request.args.get('client', None)
+    if client:
+      init_client(client)
+      return client
+    return None
+
+@app.route(f"{SUBPATH}/prefetch", methods=['POST', 'GET'])
+def prefetch():
+#    data = request.json # Get the JSON data from the request
+#    log.debug(request.json)
+    client = return_client(request)
+    if not client:
+      return json_return({ "client_prefetch": next_asset }, JSON_SUCCESS, 200)
+    return json_return({ "next_asset": next_asset.get(client, [])}, JSON_SUCCESS, 200)
 
 @app.route(f"{SUBPATH}/hook", methods=['POST'])
 def hook():
@@ -102,11 +144,10 @@ def hook():
 
     # Print the received payload to stdout
     log.debug(f"Received webhook data from IP {ip}: {data}")
-    add_fields = { "received_time": time_pretty, "received_time_unix": time_unix, "client_ip": ip, "client_json": [ data ], "multi_delay": None }
-    if client:
-        add_fields |= { "client": client }
-        
-    send_log = { "client_json": data }
+    add_fields = { "time_received": time_pretty, "time_received_unix": time_unix, "client_ip": ip, "client_name": client,
+      "hook_json": [ data ], "multi_delay": None, "time_ended": None, "time_ended_unix": None }
+
+    send_log = { "hook_json": data }
     send_log |= add_fields
 
     log_file_contents("incoming", send_log, ip )
@@ -119,20 +160,32 @@ def hook():
     else:
         log.debug("JSON_ACCEPT_KEY and/or JSON_ACCEPT_VALUE not set, subscribing to all events")
 
+    event_type = data.get(JSON_ACCEPT_KEY)
+    log.debug(f"event type: {event_type}")
     match HOOK_MODE:
         case 'immich-frame':
             log.debug(f"using immich-frame compatability mode (single layer JSON) with key {JSON_ASSETID_KEY}")
             assets.append(data.get(JSON_ASSETID_KEY))
         case 'immich-kiosk':
-            log.debug("kiosk compatibility mode (JSON with subarray) with key {JSON_ASSETID_KEY} and subkey {JSON_ASSETID_SUBKEY}")
-            for id_slice in data.get(JSON_ASSETID_KEY):
-                assets.append(id_slice.get(JSON_ASSET_ID_SUBKEY))
+          log.debug("kiosk compatibility mode (JSON with subarray) with key {JSON_ASSETID_KEY} and subkey {JSON_ASSETID_SUBKEY}")
+          log.debug(f"{event_type} --- {JSON_PREFETCH_VALUE}")
+          for x_asset in data.get(JSON_ASSETID_KEY):
+              log.debug(f"found asset: {x_asset}")
+              assets.append(x_asset['id'])
+          if event_type == JSON_PREFETCH_VALUE:
+#            next_asset[client] = []
+            next_asset[client] = assets
+            next_asset[client].append(add_fields)
+            log.debug(f"(LOGGINGHERE{assets}")
+            log.debug(next_asset)
+            return json_return({ "message": "stored next assets"}, JSON_SUCCESS, 200)
         case _:
             log.debug("no compatibility mode set, using default")
 
+    log.debug(f"full asset array: {assets}")
     # Ensure payload contains assetId
-    if not assets:
-        log.error(f"previous payload did not contain '{JSON_ASSETID_KEY}")
+    if not assets or assets == None:
+        log.error(f"previous payload did not contain '{JSON_ASSETID_KEY}'")
         return jsonify({"status": "error", "message": f"Missing '{JSON_ASSETID_KEY}' in payload"}), 400
 
     log.debug(f"Identified asset {assets}. Continuing with processing.")
@@ -146,59 +199,77 @@ def rotate_assets(ids, add, client):
     global all_assets
     current_assets = { "assets": ids }
     current_assets |= add
+    now = time.time()
 
-    if DOUBLE_DELAY and len(all_assets) > 0 and not DISABLE_DOUBLE:
-      if not all_assets[-1]["client_ip"] == current_assets["client_ip"] or not all_assets[-1]["client_url_arg"] == current_assets["client_url_arg"]:
+    if DOUBLE_DELAY and len(all_assets.get(client, [])) > 0 and not DISABLE_DOUBLE:
+      if not all_assets[client][-1]["client_ip"] == current_assets["client_ip"]:
         log.debug("second image appears to be from a different IP, skipping")
-      time_diff = time.time() - all_assets[-1]['received_time_unix']
+      time_diff = now - all_assets[client][-1]['time_received_unix']
       log.debug(f"time difference: {time_diff} seconds")
       if time_diff < DOUBLE_DELAY:
           log.debug("time difference identified, processing as duplicate")
-          all_assets[-1]['assets'].extend(current_assets['assets'])
-          all_assets[-1]['client_json'].extend(current_assets['client_json']) # extend will add to existing list
-          all_assets[-1]['multi_delay'] = time_diff
+          all_assets[client][-1]['assets'].extend(current_assets['assets'])
+          all_assets[client][-1]['hook_json'].extend(current_assets['hook_json']) # extend will add to existing list
+          all_assets[client][-1]['multi_delay'] = time_diff
           return
 
-    all_assets.append(current_assets)
-    del all_assets[:-KEEP_ASSET_LIST]
+    if client not in all_assets:
+      all_assets[client] = []
+
+    if len(all_assets[client]) > 0:
+        end_time = now - 0.1
+        all_assets[client][-1]['time_ended'] = pretty_time(end_time)
+        all_assets[client][-1]['time_ended_unix'] = end_time
+
+#    all_assets.setdefault("client", []).append([])
+    all_assets[client].append(current_assets)
+#    all_assets.append(current_assets)
+    del all_assets[client][:-KEEP_ASSET_LIST]
     return
 
-def get_asset(list, pos):
+def get_asset(list, pos, client):
     if not isinstance(pos, int) or not pos < 0:
         raise ValueError("Position must be a string ('newest', 'second_newest') or an integer.")
-    if len(list) < abs(pos):
-        raise IndexError(f"Position {pos} does not exist in the list of size {len(list)}.")
-    return list[pos]
+    try:
+      log.debug(f"{len(list[client])}")
+      if len(list[client]) < abs(pos):
+          raise IndexError(f"Position {pos} does not exist in the list of size {len(list)}.")
+      return list[client][pos]
+    except KeyError:
+      return {"message": f"unknown client {client}", "status": JSON_ERROR}
 
-def get_file(n):
+def get_file(n, client):
     try:
         log.debug(f"{n} asset requested, searching")
-        reply_json = get_asset(all_assets, n)
-        reply_json['status'] = 'success'
+        reply_json = get_asset(all_assets, n, client)
+        reply_json |= { "status": JSON_SUCCESS }
         return jsonify(reply_json), 200
     except (IndexError, ValueError) as e:
         log.error(f"unable to return last asset. Possibly no images received yet? Error {e}")
         return jsonify({ "status": "failure", "failure_message": "No last asset found. Possible first startup?"}), 500
 
-@app.route(f"{SUBPATH}/history", methods=['POST'])
-def history_post():
-    data = request.json
-    if 'offset' not in data:
-        return jsonify({"error": "Missing 'offset' in the request body"}), 400
-    file_number = data.get('offset')
-    return get_file(file_number)
+@app.route(f"{SUBPATH}/history", methods=['POST', 'GET'])
+def history():
+    if request.method == 'GET':
+        return json_return({ "client_assets": all_assets }, JSON_SUCCESS, 200)
 
-@app.route(f"{SUBPATH}/history", methods=['GET'])
-def history_get():
-    return jsonify(all_assets), 200
+    # must be a POST
+    client = req_client(request)
+    data = request.json
+    if 'offset' in data and client:
+        file_number = data.get('offset')
+        return get_file(file_number, client)
+    return json_return({ "client_assets": all_assets }, JSON_SUCCESS, 200)
 
 @app.route(f"{SUBPATH}/last", methods=['GET'])
 def last():
-    return get_file(-2)
+    client = return_client(request)
+    return get_file(-2, client)
 
 @app.route(f"{SUBPATH}/current", methods=['GET'])
 def current():
-    return get_file(-1)
+    client = return_client(request)
+    return get_file(-1, client)
 
 def immich_headers(apikey):
     if not immich_enabled():
@@ -209,6 +280,11 @@ def immich_enabled():
     if IMMICH_API_KEY and IMMICH_URL:
         return True
     return False
+
+def json_return(json, status, return_code):
+    json_out = json
+    json |= { "status": status }
+    return jsonify(json_out), return_code
 
 def call_immich(payload, suburl):
     if not immich_enabled():
@@ -223,7 +299,8 @@ def call_immich(payload, suburl):
             return jsonify({"status": "success", "message": "Asset processed successfully"}), 200
         else:
             log.error(f"Failed to process asset. Status code: {response.status_code}, Response: {response.text}")
-            return jsonify({"status": "error", "message": "Failed to process asset"}), response.status_code
+            return json_return({"message": "Failed to process asset"}, JSON_ERROR, response.status_code)
+            # return jsonify({"status": "error", "message": "Failed to process asset"}), response.status_code
 
     except requests.exceptions.RequestException as e:
         log.error(f"Error interacting with Immich API: {e}")
@@ -293,17 +370,22 @@ def check_env():
         log.fatal(f"invalid subpath specified. SUPATH={SUBPATH}. exiting")
         sys.exit(1)
 
+    global JSON_ASSETID_KEY , JSON_ACCEPT_VALUE , JSON_ACCEPT_KEY , JSON_NEWASSET_VALUE , JSON_PREFETCH_VALUE , DOUBLE_DELAY
     match HOOK_MODE:
         case "immich-frame":
             log.info("using immich-frame compatibility mode")
-            global JSON_ASSETID_KEY , JSON_ACCEPT_VALUE , JSON_ACCEPT_KEY , DOUBLE_DELAY
             JSON_ASSETID_KEY = "RequestedImageId"
-            JSON_ACCEPT_VALUE = "ImageRequestedNotification"
             JSON_ACCEPT_KEY = "Name"
+            JSON_ACCEPT_VALUE = [ "ImageRequestedNotification" ]
             DOUBLE_DELAY = 0.3
-            log.debug(f"JSON_ACCEPT_KEY={JSON_ACCEPT_KEY} - JSON_ACCEPT_VALUE={JSON_ACCEPT_VALUE} - JSON_ASSETID_KEY='{JSON_ASSETID_KEY}")
+            log.debug(f"JSON_ACCEPT_KEY={JSON_ACCEPT_KEY} - JSON_ACCEPT_VALUE={JSON_ACCEPT_VALUE} - JSON_ASSETID_KEY={JSON_ASSETID_KEY}")
         case "immich-kiosk":
             log.info("using immich-kiosk compatiblity mode")
+            JSON_ACCEPT_KEY = "event"
+            JSON_NEWASSET_VALUE = "asset.new"
+            JSON_PREFETCH_VALUE = 'asset.prefetch'
+            JSON_ACCEPT_VALUE = [ JSON_NEWASSET_VALUE , JSON_PREFETCH_VALUE ]
+            JSON_ASSETID_KEY = "assets"
         case "other":
             log.warning("Using 'other' compatbility mode, results are untested")
         case _:
