@@ -27,48 +27,57 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 log.debug("logging initialized")
 
-app = Flask(__name__)
-log.debug("Flask app initialized")
-
 def set_env():
     log.debug("reading in initial env vars")
     # Read in other env vars
-    global IMMICH_API_KEY = os.environ.get("IMMICH_API_KEY", "")
-    global IMMICH_URL = os.environ.get("IMMICH_URL", "")
-    global IMMICH_ALBUM_ID = os.environ.get("IMMICH_ALBUM_ID", "")
+    global IMMICH_API_KEY , IMMICH_URL, IMMICH_ALBUM_ID
+    IMMICH_API_KEY = os.environ.get("IMMICH_API_KEY", "")
+    IMMICH_URL = os.environ.get("IMMICH_URL", "")
+    IMMICH_ALBUM_ID = os.environ.get("IMMICH_ALBUM_ID", "")
 
-    global SUBPATH = os.environ.get("WHIMMICH_SUBPATH", "")
-    global JSON_PATH = os.environ.get("WHIMMICH_JSON_PATH", "") # no logging if not specified
-    global JSON_CLIENT_KEY = os.environ.get("WHIMMICH_JSON_CLIENT_KEY", "")
-    global HOOK_MODE = os.environ.get("WHIMMICH_HOOK_MODE", "other")
-    global LOG_ROTATE_HOURS = int(os.environ.get("WHIMMICH_LOG_ROTATE_HOURS", 168))
+    global SUBPATH , JSON_PATH , JSON_CLIENT_KEY , HOOK_MODE , LOG_ROTATE_HOURS
+    SUBPATH = os.environ.get("WHIMMICH_SUBPATH", "")
+    JSON_PATH = os.environ.get("WHIMMICH_JSON_PATH", "") # no logging if not specified
+    JSON_CLIENT_KEY = os.environ.get("WHIMMICH_JSON_CLIENT_KEY", "")
+    HOOK_MODE = os.environ.get("WHIMMICH_HOOK_MODE", "other")
+    LOG_ROTATE_HOURS = int(os.environ.get("WHIMMICH_LOG_ROTATE_HOURS", 168))
 
-    global bool_accept = [ "true", "1", "yes", 1, True ]
-    global LOG_IP_TO_FILENAME = os.environ.get("WHIMMICH_LOG_IP_TO_FILENAME", "false").lower() in bool_accept
+    global bool_accept , LOG_IP_TO_FILENAME
+    bool_accept = [ "true", "1", "yes", 1, True ]
+    LOG_IP_TO_FILENAME = os.environ.get("WHIMMICH_LOG_IP_TO_FILENAME", "false").lower() in bool_accept
 
-    global JSON_ACCEPT_VALUE = os.environ.get("WHIMMICH_JSON_ACCEPT_VALUE", "")
-    global JSON_ACCEPT_KEY = os.environ.get("WHIMMICH_JSON_ACCEPT_KEY", "")
-    global JSON_ASSETID_KEY = os.environ.get("WHIMMICH_JSON_ASSETID_KEY", "")
-    global JSON_ASSETID_SUBKEY = os.environ.get("WHIMMICH_JSON_ASSETID_SUBKEY", "")
-    global JSON_NEWASSET_VALUE = os.environ.get("WHIMMICH_JSON_NEWASSET_VALUE", "")
-    global JSON_PREFETCH_VALUE = os.environ.get("WHIMMICH_JSON_PREFETCH_VALUE", "")
-    global API_KEY = os.environ.get("WHIMMICH_API_KEY", "")
-    global KEEP_ASSET_LIST = int(os.environ.get("WHIMMICH_KEEP_ASSET_LIST", 10))
+    global JSON_ACCEPT_VALUE , JSON_ACCEPT_KEY , JSON_ASSETID_KEY , JSON_ASSETID_SUBKEY , JSON_NEWASSET_VALUE
+    global API_KEY , KEEP_ASSET_LIST
+    JSON_ACCEPT_VALUE = os.environ.get("WHIMMICH_JSON_ACCEPT_VALUE", "")
+    JSON_ACCEPT_KEY = os.environ.get("WHIMMICH_JSON_ACCEPT_KEY", "")
+    JSON_ASSETID_KEY = os.environ.get("WHIMMICH_JSON_ASSETID_KEY", "")
+    JSON_ASSETID_SUBKEY = os.environ.get("WHIMMICH_JSON_ASSETID_SUBKEY", "")
+    JSON_NEWASSET_VALUE = os.environ.get("WHIMMICH_JSON_NEWASSET_VALUE", "")
+    JSON_PREFETCH_VALUE = os.environ.get("WHIMMICH_JSON_PREFETCH_VALUE", "")
+    API_KEY = os.environ.get("WHIMMICH_API_KEY", "")
+    KEEP_ASSET_LIST = int(os.environ.get("WHIMMICH_KEEP_ASSET_LIST", 10))
 
-    global DOUBLE_DELAY = float(os.environ.get("WHIMMICH_DOUBLE_DELAY", 0.3))
-    global DISABLE_DOUBLE = os.environ.get("WHIMMICH_DISABLE_DOUBLE", "false").lower() in bool_accept
+    global DOUBLE_DELAY , DISABLE_DOUBLE
+    DOUBLE_DELAY = float(os.environ.get("WHIMMICH_DOUBLE_DELAY", 0.3))
+    DISABLE_DOUBLE = os.environ.get("WHIMMICH_DISABLE_DOUBLE", "false").lower() in bool_accept
 
-    global last_cleanup_time = 0  # Global variable to store the last cleanup timestamp
-    global CLEANUP_INTERVAL = 60  # Interval in minutes
-    global all_assets = {}
-    global next_asset = {}
-    global DEFAULT_CLIENT = 'unknown'
+    global last_cleanup_time , CLEANUP_INTERVAL , all_assets , next_asset , DEFAULT_CLIENT
+    last_cleanup_time = 0  # Global variable to store the last cleanup timestamp
+    CLEANUP_INTERVAL = 60  # Interval in minutes
+    all_assets = {}
+    next_asset = {}
+    DEFAULT_CLIENT = 'unknown'
     # DISABLE_CLIENT_TRACKING = os.environ.get("WHIMMICH_DISABLE_CLIENT_TRACKING", "false").lower() in bool_accept
 
-    global JSON_UNAUTH = { "status": "unauthorized" }
-    global JSON_SUCCESS = { "status": "success" }
-    global JSON_ERROR = { "status": "error" }
+    global JSON_UNAUTH , JSON_SUCCESS , JSON_ERROR
+    JSON_UNAUTH = { "status": "unauthorized" }
+    JSON_SUCCESS = { "status": "success" }
+    JSON_ERROR = { "status": "error" }
     return
+
+set_env()
+app = Flask(__name__)
+log.debug("Flask app initialized")
 
 @app.before_request
 def check_api_key():
