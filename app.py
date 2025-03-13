@@ -27,64 +27,65 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 log.debug("logging initialized")
 
-log.debug("reading in initial env vars")
-# Read in other env vars
-IMMICH_API_KEY = os.environ.get("IMMICH_API_KEY", "")
-IMMICH_URL = os.environ.get("IMMICH_URL", "")
-IMMICH_ALBUM_ID = os.environ.get("IMMICH_ALBUM_ID", "")
-
-SUBPATH = os.environ.get("WHIMMICH_SUBPATH", "")
-JSON_PATH = os.environ.get("WHIMMICH_JSON_PATH", "") # no logging if not specified
-JSON_CLIENT_KEY = os.environ.get("WHIMMICH_JSON_CLIENT_KEY", "")
-HOOK_MODE = os.environ.get("WHIMMICH_HOOK_MODE", "other")
-LOG_ROTATE_HOURS = int(os.environ.get("WHIMMICH_LOG_ROTATE_HOURS", 168))
-
-bool_accept = [ "true", "1", "yes", 1, True ]
-LOG_IP_TO_FILENAME = os.environ.get("WHIMMICH_LOG_IP_TO_FILENAME", "false").lower() in bool_accept
-
-JSON_ACCEPT_VALUE = os.environ.get("WHIMMICH_JSON_ACCEPT_VALUE", "")
-JSON_ACCEPT_KEY = os.environ.get("WHIMMICH_JSON_ACCEPT_KEY", "")
-JSON_ASSETID_KEY = os.environ.get("WHIMMICH_JSON_ASSETID_KEY", "")
-JSON_ASSETID_SUBKEY = os.environ.get("WHIMMICH_JSON_ASSETID_SUBKEY", "")
-JSON_NEWASSET_VALUE = os.environ.get("WHIMMICH_JSON_NEWASSET_VALUE", "")
-JSON_PREFETCH_VALUE = os.environ.get("WHIMMICH_JSON_PREFETCH_VALUE", "")
-API_KEY = os.environ.get("WHIMMICH_API_KEY", "")
-
-KEEP_ASSET_LIST = int(os.environ.get("WHIMMICH_KEEP_ASSET_LIST", 10))
-
-DOUBLE_DELAY = float(os.environ.get("WHIMMICH_DOUBLE_DELAY", 0.3))
-DISABLE_DOUBLE = os.environ.get("WHIMMICH_DISABLE_DOUBLE", "false").lower() in bool_accept
-
-last_cleanup_time = 0  # Global variable to store the last cleanup timestamp
-CLEANUP_INTERVAL = 60  # Interval in minutes
-all_assets = {}
-next_asset = {}
-DEFAULT_CLIENT = 'unknown'
-# DISABLE_CLIENT_TRACKING = os.environ.get("WHIMMICH_DISABLE_CLIENT_TRACKING", "false").lower() in bool_accept
-
-JSON_UNAUTH = { "status": "unauthorized" }
-JSON_SUCCESS = { "status": "success" }
-JSON_ERROR = { "status": "error" }
-
 app = Flask(__name__)
 log.debug("Flask app initialized")
+
+def set_env():
+    log.debug("reading in initial env vars")
+    # Read in other env vars
+    global IMMICH_API_KEY = os.environ.get("IMMICH_API_KEY", "")
+    global IMMICH_URL = os.environ.get("IMMICH_URL", "")
+    global IMMICH_ALBUM_ID = os.environ.get("IMMICH_ALBUM_ID", "")
+
+    global SUBPATH = os.environ.get("WHIMMICH_SUBPATH", "")
+    global JSON_PATH = os.environ.get("WHIMMICH_JSON_PATH", "") # no logging if not specified
+    global JSON_CLIENT_KEY = os.environ.get("WHIMMICH_JSON_CLIENT_KEY", "")
+    global HOOK_MODE = os.environ.get("WHIMMICH_HOOK_MODE", "other")
+    global LOG_ROTATE_HOURS = int(os.environ.get("WHIMMICH_LOG_ROTATE_HOURS", 168))
+
+    global bool_accept = [ "true", "1", "yes", 1, True ]
+    global LOG_IP_TO_FILENAME = os.environ.get("WHIMMICH_LOG_IP_TO_FILENAME", "false").lower() in bool_accept
+
+    global JSON_ACCEPT_VALUE = os.environ.get("WHIMMICH_JSON_ACCEPT_VALUE", "")
+    global JSON_ACCEPT_KEY = os.environ.get("WHIMMICH_JSON_ACCEPT_KEY", "")
+    global JSON_ASSETID_KEY = os.environ.get("WHIMMICH_JSON_ASSETID_KEY", "")
+    global JSON_ASSETID_SUBKEY = os.environ.get("WHIMMICH_JSON_ASSETID_SUBKEY", "")
+    global JSON_NEWASSET_VALUE = os.environ.get("WHIMMICH_JSON_NEWASSET_VALUE", "")
+    global JSON_PREFETCH_VALUE = os.environ.get("WHIMMICH_JSON_PREFETCH_VALUE", "")
+    global API_KEY = os.environ.get("WHIMMICH_API_KEY", "")
+    global KEEP_ASSET_LIST = int(os.environ.get("WHIMMICH_KEEP_ASSET_LIST", 10))
+
+    global DOUBLE_DELAY = float(os.environ.get("WHIMMICH_DOUBLE_DELAY", 0.3))
+    global DISABLE_DOUBLE = os.environ.get("WHIMMICH_DISABLE_DOUBLE", "false").lower() in bool_accept
+
+    global last_cleanup_time = 0  # Global variable to store the last cleanup timestamp
+    global CLEANUP_INTERVAL = 60  # Interval in minutes
+    global all_assets = {}
+    global next_asset = {}
+    global DEFAULT_CLIENT = 'unknown'
+    # DISABLE_CLIENT_TRACKING = os.environ.get("WHIMMICH_DISABLE_CLIENT_TRACKING", "false").lower() in bool_accept
+
+    global JSON_UNAUTH = { "status": "unauthorized" }
+    global JSON_SUCCESS = { "status": "success" }
+    global JSON_ERROR = { "status": "error" }
+    return
 
 @app.before_request
 def check_api_key():
     if request.endpoint in ['health_check']: # skip auth for healthcheck
         return
     if not API_KEY:
-      return
+        return
     apikey = request.headers.get('X-API-Key', None)
     if apikey == API_KEY:
-      return
-    if request.method == 'POST':
-      apikey = request.json.get('apikey', None)
-      if apikey == API_KEY:
         return
+    if request.method == 'POST':
+        apikey = request.json.get('apikey', None)
+        if apikey == API_KEY:
+            return
     apikey = request.args.get('apikey', None)
     if apikey == API_KEY:
-      return
+        return
     return jsonify({"status": JSON_UNAUTH}), 401
 
 def log_file_contents(file_partial, data, ip):
@@ -106,9 +107,9 @@ def log_file_contents(file_partial, data, ip):
 
 def hook_accept_key_value(data_hook, key, value_arg):
     if not isinstance(value_arg, list):
-      value = [ value_arg ]
+        value = [ value_arg ]
     else:
-      value = value_arg
+        value = value_arg
     if data_hook.get(key) in value:
         log.debug(f"{key} matches {value}, in hook_accept_key_value, returning True")
         return True
@@ -118,26 +119,26 @@ def hook_accept_key_value(data_hook, key, value_arg):
 def return_client(request):
     client = req_client(request)
     if client:
-      return client
+        return client
     return DEFAULT_CLIENT
 
 def init_client(name):
-  if not all_assets.get(name, None):
-    all_assets[name] = []
-  if not next_asset.get(name, None):
-    next_asset[name] = []
-  return
+    if not all_assets.get(name, None):
+        all_assets[name] = []
+    if not next_asset.get(name, None):
+        next_asset[name] = []
+    return
 
 def req_client(request):
     if request.method == 'POST' and JSON_CLIENT_KEY:
-      client = request.json.get(JSON_CLIENT_KEY, None)
-      if client:
-        init_client(client)
-        return client
+        client = request.json.get(JSON_CLIENT_KEY, None)
+        if client:
+            init_client(client)
+            return client
     client = request.args.get('client', None)
     if client:
-      init_client(client)
-      return client
+        init_client(client)
+        return client
     return None
 
 @app.route(f"{SUBPATH}/prefetch", methods=['POST', 'GET'])
@@ -162,7 +163,7 @@ def hook():
     # Print the received payload to stdout
     log.debug(f"Received webhook data from IP {ip}: {data}")
     add_fields = { "time_received": time_pretty, "time_received_unix": time_unix, "client_ip": ip, "client_name": client,
-      "hook_json": [ data ], "multi_delay": None, "time_ended": None, "time_ended_unix": None }
+        "hook_json": [ data ], "multi_delay": None, "time_ended": None, "time_ended_unix": None }
 
     send_log = { "hook_json": data }
     send_log |= add_fields
@@ -184,16 +185,16 @@ def hook():
             log.debug(f"using immich-frame compatability mode (single layer JSON) with key {JSON_ASSETID_KEY}")
             assets.append(data.get(JSON_ASSETID_KEY))
         case 'immich-kiosk':
-          log.debug("kiosk compatibility mode (JSON with subarray) with key {JSON_ASSETID_KEY} and subkey {JSON_ASSETID_SUBKEY}")
-          log.debug(f"{event_type} --- {JSON_PREFETCH_VALUE}")
-          for x_asset in data.get(JSON_ASSETID_KEY):
-              log.debug(f"found asset: {x_asset}")
-              assets.append(x_asset['id'])
-          if event_type == JSON_PREFETCH_VALUE:
-            next_asset[client] = assets
-            next_asset[client].append(add_fields)
-            log.debug("storing prefetch asset")
-            return jsonify({ "message": "stored next assets"} | JSON_SUCCESS), 200
+            log.debug("kiosk compatibility mode (JSON with subarray) with key {JSON_ASSETID_KEY} and subkey {JSON_ASSETID_SUBKEY}")
+            log.debug(f"{event_type} --- {JSON_PREFETCH_VALUE}")
+            for x_asset in data.get(JSON_ASSETID_KEY):
+                log.debug(f"found asset: {x_asset}")
+                assets.append(x_asset['id'])
+            if event_type == JSON_PREFETCH_VALUE:
+                next_asset[client] = assets
+                next_asset[client].append(add_fields)
+                log.debug("storing prefetch asset")
+                return jsonify({ "message": "stored next assets"} | JSON_SUCCESS), 200
         case _:
             log.debug("no compatibility mode set, using default")
 
@@ -219,14 +220,14 @@ def rotate_assets(ids, add, client):
     if DOUBLE_DELAY and len(all_assets.get(client, [])) > 0 and not DISABLE_DOUBLE:
 #      if not all_assets[client][-1]["client_ip"] == current_assets["client_ip"]:
 #        log.debug("second image appears to be from a different IP, skipping")
-      time_diff = now - all_assets[client][-1]['time_received_unix']
-      log.debug(f"time difference: {time_diff} seconds")
-      if time_diff < DOUBLE_DELAY:
-          log.debug("time difference identified, processing as duplicate")
-          all_assets[client][-1]['assets'].extend(current_assets['assets'])
-          all_assets[client][-1]['hook_json'].extend(current_assets['hook_json']) # extend will add to existing list
-          all_assets[client][-1]['multi_delay'] = time_diff
-          return
+        time_diff = now - all_assets[client][-1]['time_received_unix']
+        log.debug(f"time difference: {time_diff} seconds")
+        if time_diff < DOUBLE_DELAY:
+            log.debug("time difference identified, processing as duplicate")
+            all_assets[client][-1]['assets'].extend(current_assets['assets'])
+            all_assets[client][-1]['hook_json'].extend(current_assets['hook_json']) # extend will add to existing list
+            all_assets[client][-1]['multi_delay'] = time_diff
+            return
 
 #    if client not in all_assets:
 #      all_assets[client] = []
@@ -246,13 +247,13 @@ def get_asset(list, pos, client):
     if not isinstance(pos, int) or not pos < 0:
         raise ValueError("Position must be a string ('newest', 'second_newest') or an integer.")
     try:
-      log.debug(f"{len(list[client])}")
-      if len(list[client]) < abs(pos):
-          raise IndexError(f"Position {pos} does not exist in the list of size {len(list)}.")
-      return list[client][pos]
+        log.debug(f"{len(list[client])}")
+        if len(list[client]) < abs(pos):
+            raise IndexError(f"Position {pos} does not exist in the list of size {len(list)}.")
+        return list[client][pos]
     except KeyError:
-      raise KeyError
-      return {"message": f"unknown client '{client}'", "status": JSON_ERROR}
+        raise KeyError
+        return {"message": f"unknown client '{client}'", "status": JSON_ERROR}
 
 def get_file(n, client):
     try:
@@ -425,7 +426,6 @@ def cleanup_logs(log_dir, max_age_hours = LOG_ROTATE_HOURS):
                 log.error(f"Error deleting file {file_path}: {e}")
     last_cleanup_time = now  # Update the last cleanup time
 
-
 if __name__ == '__main__':
     log.info("whImmich starting up")
 
@@ -433,6 +433,7 @@ if __name__ == '__main__':
     signal.signal(signal.SIGINT, handle_shutdown_signal)  # For Ctrl+C (SIGINT)
     signal.signal(signal.SIGTERM, handle_shutdown_signal) # For docker stop (SIGTERM)
 
+    set_env()
     check_env()
 
     cleanup_logs(JSON_PATH)
