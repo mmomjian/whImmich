@@ -35,6 +35,7 @@ IMMICH_ALBUM_ID = os.environ.get("IMMICH_ALBUM_ID", "")
 
 SUBPATH = os.environ.get("WHIMMICH_SUBPATH", "")
 JSON_PATH = os.environ.get("WHIMMICH_JSON_PATH", "") # no logging if not specified
+JSON_CLIENT_KEY = os.environ.get("WHIMMICH_JSON_CLIENT_KEY", "")
 HOOK_MODE = os.environ.get("WHIMMICH_HOOK_MODE", "other")
 LOG_ROTATE_HOURS = int(os.environ.get("WHIMMICH_LOG_ROTATE_HOURS", 168))
 
@@ -47,6 +48,7 @@ JSON_ASSETID_KEY = os.environ.get("WHIMMICH_JSON_ASSETID_KEY", "")
 JSON_ASSETID_SUBKEY = os.environ.get("WHIMMICH_JSON_ASSETID_SUBKEY", "")
 JSON_NEWASSET_VALUE = os.environ.get("WHIMMICH_JSON_NEWASSET_VALUE", "")
 JSON_PREFETCH_VALUE = os.environ.get("WHIMMICH_JSON_PREFETCH_VALUE", "")
+API_KEY = os.environ.get("WHIMMICH_API_KEY", "")
 
 KEEP_ASSET_LIST = int(os.environ.get("WHIMMICH_KEEP_ASSET_LIST", 10))
 
@@ -60,12 +62,30 @@ next_asset = {}
 DEFAULT_CLIENT = 'unknown'
 # DISABLE_CLIENT_TRACKING = os.environ.get("WHIMMICH_DISABLE_CLIENT_TRACKING", "false").lower() in bool_accept
 
-JSON_UNAUTH = 'unauthorized'
-JSON_SUCCESS = 'success'
-JSON_ERROR = 'error'
+JSON_UNAUTH = { "status": "unauthorized" }
+JSON_SUCCESS = { "status": "success" }
+JSON_ERROR = { "status": "error" }
 
 app = Flask(__name__)
 log.debug("Flask app initialized")
+
+@app.before_request
+def check_api_key():
+    if request.endpoint in ['health_check']: # skip auth for healthcheck
+        return
+    if not API_KEY:
+      return
+    apikey = request.headers.get('X-API-Key', None)
+    if apikey == API_KEY:
+      return
+    if request.method == 'POST':
+      apikey = request.json.get('apikey', None)
+      if apikey == API_KEY:
+        return
+    apikey = request.args.get('apikey', None)
+    if apikey == API_KEY:
+      return
+    return jsonify({"status": JSON_UNAUTH}), 401
 
 def log_file_contents(file_partial, data, ip):
     if not JSON_PATH:
@@ -79,7 +99,7 @@ def log_file_contents(file_partial, data, ip):
     try:
         with open(file_path, 'a') as file:  # Append mode to not overwrite
             json.dump(data, file)
-            file.write("\n")  # Add newline for each entry for easier reading
+            file.write("\n")
             log.debug(f"Logged payload to file: {file_path}")
     except Exception as e:
         log.error(f"Error writing to file {file_path}: {e}")
@@ -96,7 +116,6 @@ def hook_accept_key_value(data_hook, key, value_arg):
     return False
 
 def return_client(request):
-#    if not DISABLE_CLIENT_TRACKING:
     client = req_client(request)
     if client:
       return client
@@ -110,13 +129,11 @@ def init_client(name):
   return
 
 def req_client(request):
-    if request.method == 'POST':
-      client = request.json.get('client', None)
+    if request.method == 'POST' and JSON_CLIENT_KEY:
+      client = request.json.get(JSON_CLIENT_KEY, None)
       if client:
         init_client(client)
         return client
-#    elif request.method == 'GET':
-    # fallback to GET url args, even if POST
     client = request.args.get('client', None)
     if client:
       init_client(client)
@@ -128,9 +145,9 @@ def prefetch():
 #    data = request.json # Get the JSON data from the request
 #    log.debug(request.json)
     client = return_client(request)
-    if not client:
-      return json_return({ "client_prefetch": next_asset }, JSON_SUCCESS, 200)
-    return json_return({ "next_asset": next_asset.get(client, [])}, JSON_SUCCESS, 200)
+#    if not client:
+#      return jsonify({ "client_prefetch": next_asset } | JSON_SUCCESS), 200
+    return jsonify({ "next_asset": next_asset.get(client, [])} | JSON_SUCCESS), 200
 
 @app.route(f"{SUBPATH}/hook", methods=['POST'])
 def hook():
@@ -173,12 +190,10 @@ def hook():
               log.debug(f"found asset: {x_asset}")
               assets.append(x_asset['id'])
           if event_type == JSON_PREFETCH_VALUE:
-#            next_asset[client] = []
             next_asset[client] = assets
             next_asset[client].append(add_fields)
-            log.debug(f"(LOGGINGHERE{assets}")
-            log.debug(next_asset)
-            return json_return({ "message": "stored next assets"}, JSON_SUCCESS, 200)
+            log.debug("storing prefetch asset")
+            return jsonify({ "message": "stored next assets"} | JSON_SUCCESS), 200
         case _:
             log.debug("no compatibility mode set, using default")
 
@@ -202,8 +217,8 @@ def rotate_assets(ids, add, client):
     now = time.time()
 
     if DOUBLE_DELAY and len(all_assets.get(client, [])) > 0 and not DISABLE_DOUBLE:
-      if not all_assets[client][-1]["client_ip"] == current_assets["client_ip"]:
-        log.debug("second image appears to be from a different IP, skipping")
+#      if not all_assets[client][-1]["client_ip"] == current_assets["client_ip"]:
+#        log.debug("second image appears to be from a different IP, skipping")
       time_diff = now - all_assets[client][-1]['time_received_unix']
       log.debug(f"time difference: {time_diff} seconds")
       if time_diff < DOUBLE_DELAY:
@@ -213,8 +228,8 @@ def rotate_assets(ids, add, client):
           all_assets[client][-1]['multi_delay'] = time_diff
           return
 
-    if client not in all_assets:
-      all_assets[client] = []
+#    if client not in all_assets:
+#      all_assets[client] = []
 
     if len(all_assets[client]) > 0:
         end_time = now - 0.1
@@ -236,7 +251,8 @@ def get_asset(list, pos, client):
           raise IndexError(f"Position {pos} does not exist in the list of size {len(list)}.")
       return list[client][pos]
     except KeyError:
-      return {"message": f"unknown client {client}", "status": JSON_ERROR}
+      raise KeyError
+      return {"message": f"unknown client '{client}'", "status": JSON_ERROR}
 
 def get_file(n, client):
     try:
@@ -244,14 +260,14 @@ def get_file(n, client):
         reply_json = get_asset(all_assets, n, client)
         reply_json |= { "status": JSON_SUCCESS }
         return jsonify(reply_json), 200
-    except (IndexError, ValueError) as e:
-        log.error(f"unable to return last asset. Possibly no images received yet? Error {e}")
+    except (KeyError, IndexError, ValueError) as e:
+        log.error(f"unable to return last asset. Possibly no images received yet, or unknown client '{client}' Error {e}")
         return jsonify({ "status": "failure", "failure_message": "No last asset found. Possible first startup?"}), 500
 
 @app.route(f"{SUBPATH}/history", methods=['POST', 'GET'])
 def history():
     if request.method == 'GET':
-        return json_return({ "client_assets": all_assets }, JSON_SUCCESS, 200)
+        return jsonify({ "client_assets": all_assets } | JSON_SUCCESS), 200
 
     # must be a POST
     client = req_client(request)
@@ -259,7 +275,7 @@ def history():
     if 'offset' in data and client:
         file_number = data.get('offset')
         return get_file(file_number, client)
-    return json_return({ "client_assets": all_assets }, JSON_SUCCESS, 200)
+    return jsonify({ "client_assets": all_assets } | JSON_SUCCESS), 200
 
 @app.route(f"{SUBPATH}/last", methods=['GET'])
 def last():
@@ -281,11 +297,6 @@ def immich_enabled():
         return True
     return False
 
-def json_return(json, status, return_code):
-    json_out = json
-    json |= { "status": status }
-    return jsonify(json_out), return_code
-
 def call_immich(payload, suburl):
     if not immich_enabled():
         return None
@@ -299,8 +310,7 @@ def call_immich(payload, suburl):
             return jsonify({"status": "success", "message": "Asset processed successfully"}), 200
         else:
             log.error(f"Failed to process asset. Status code: {response.status_code}, Response: {response.text}")
-            return json_return({"message": "Failed to process asset"}, JSON_ERROR, response.status_code)
-            # return jsonify({"status": "error", "message": "Failed to process asset"}), response.status_code
+            return jsonify({"message": "Failed to process asset"} | JSON_ERROR), response.status_code
 
     except requests.exceptions.RequestException as e:
         log.error(f"Error interacting with Immich API: {e}")
@@ -370,13 +380,14 @@ def check_env():
         log.fatal(f"invalid subpath specified. SUPATH={SUBPATH}. exiting")
         sys.exit(1)
 
-    global JSON_ASSETID_KEY , JSON_ACCEPT_VALUE , JSON_ACCEPT_KEY , JSON_NEWASSET_VALUE , JSON_PREFETCH_VALUE , DOUBLE_DELAY
+    global JSON_ASSETID_KEY , JSON_ACCEPT_VALUE , JSON_ACCEPT_KEY , JSON_NEWASSET_VALUE , JSON_PREFETCH_VALUE , DOUBLE_DELAY , JSON_CLIENT_KEY
     match HOOK_MODE:
         case "immich-frame":
             log.info("using immich-frame compatibility mode")
             JSON_ASSETID_KEY = "RequestedImageId"
             JSON_ACCEPT_KEY = "Name"
             JSON_ACCEPT_VALUE = [ "ImageRequestedNotification" ]
+            JSON_CLIENT_KEY = "ClientIdentifier"
             DOUBLE_DELAY = 0.3
             log.debug(f"JSON_ACCEPT_KEY={JSON_ACCEPT_KEY} - JSON_ACCEPT_VALUE={JSON_ACCEPT_VALUE} - JSON_ASSETID_KEY={JSON_ASSETID_KEY}")
         case "immich-kiosk":
@@ -385,6 +396,7 @@ def check_env():
             JSON_NEWASSET_VALUE = "asset.new"
             JSON_PREFETCH_VALUE = 'asset.prefetch'
             JSON_ACCEPT_VALUE = [ JSON_NEWASSET_VALUE , JSON_PREFETCH_VALUE ]
+            JSON_CLIENT_KEY = "clientName"
             JSON_ASSETID_KEY = "assets"
         case "other":
             log.warning("Using 'other' compatbility mode, results are untested")
@@ -428,5 +440,6 @@ if __name__ == '__main__':
     host = os.environ.get("WHIMMICH_HOST", "0.0.0.0")
     log.debug(f"collected startup info, host {host}, port {port}, subhook path='{SUBPATH}'")
 
+    init_client(DEFAULT_CLIENT)
     # Start serving the Flask app with Waitress
     serve(app, host=host, port=port)
