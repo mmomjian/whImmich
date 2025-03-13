@@ -12,18 +12,14 @@ from waitress import serve
 
 # Configure logging
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
-log_levels = {
-    "DEBUG": logging.DEBUG,
+log_levels = { "DEBUG": logging.DEBUG,
     "INFO": logging.INFO,
     "WARNING": logging.WARNING,
     "ERROR": logging.ERROR,
-    "CRITICAL": logging.CRITICAL,
-}
-logging.basicConfig(
-    level = log_levels.get(LOG_LEVEL, logging.INFO),
+    "CRITICAL": logging.CRITICAL }
+logging.basicConfig( level = log_levels.get(LOG_LEVEL, logging.INFO),
     format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
+    handlers=[logging.StreamHandler(sys.stdout)] )
 log = logging.getLogger(__name__)
 log.debug("logging initialized")
 
