@@ -26,11 +26,16 @@ log.debug("logging initialized")
 
 def set_env():
     log.debug("reading in initial env vars")
+
+    global bool_accept , LOG_IP_TO_FILENAME
+    bool_accept = [ "true", "1", "yes", 1, True ]
+
     # Read in other env vars
-    global IMMICH_API_KEY , IMMICH_URL, IMMICH_ALBUM_ID
+    global IMMICH_API_KEY , IMMICH_URL, IMMICH_ALBUM_ID , IMMICH_SET_FAVORITE
     IMMICH_API_KEY = os.environ.get("IMMICH_API_KEY", "")
     IMMICH_URL = os.environ.get("IMMICH_URL", "")
     IMMICH_ALBUM_ID = os.environ.get("IMMICH_ALBUM_ID", "")
+    IMMICH_SET_FAVORITE = os.environ.get("IMMICH_SET_FAVORITE", "false").lower() in bool_accept
 
     global SUBPATH , JSON_PATH , JSON_CLIENT_KEY , HOOK_MODE , LOG_ROTATE_HOURS
     SUBPATH = os.environ.get("WHIMMICH_SUBPATH", "")
@@ -39,8 +44,6 @@ def set_env():
     HOOK_MODE = os.environ.get("WHIMMICH_HOOK_MODE", "other")
     LOG_ROTATE_HOURS = int(os.environ.get("WHIMMICH_LOG_ROTATE_HOURS", 168))
 
-    global bool_accept , LOG_IP_TO_FILENAME
-    bool_accept = [ "true", "1", "yes", 1, True ]
     LOG_IP_TO_FILENAME = os.environ.get("WHIMMICH_LOG_IP_TO_FILENAME", "false").lower() in bool_accept
 
     global JSON_ACCEPT_VALUE , JSON_ACCEPT_KEY , JSON_ASSETID_KEY , JSON_ASSETID_SUBKEY , JSON_NEWASSET_VALUE
@@ -323,15 +326,22 @@ def call_immich(payload, suburl):
         return jsonify({"status": "error", "message": "Internal server error"}), 500
 
 def add_to_album(asset_ids):
-    log.info(f"adding asset {asset_ids} to album {IMMICH_ALBUM_ID}")
-    payload = {"ids": asset_ids}
-    return call_immich(payload, f'/albums/{IMMICH_ALBUM_ID}/assets')
+    if IMMICH_ALBUM_ID:
+        log.info(f"adding asset {asset_ids} to album {IMMICH_ALBUM_ID}")
+        payload = {"ids": asset_ids}
+        return call_immich(payload, f'/albums/{IMMICH_ALBUM_ID}/assets')
+    else:
+        log.debug("IMMICH_ALBUM_ID not set, skipping album addition")
+        return None
 
 def set_favorite(asset_ids):
-    log.info(f"setting assets {asset_ids} as favorites")
-    payload = {"ids": asset_ids, "isFavorite": True}
-    log.debug(payload)
-#    return call_immich(payload, '/assets')
+    if IMMICH_SET_FAVORITE:
+        log.info(f"setting assets {asset_ids} as favorites")
+        payload = {"ids": asset_ids, "isFavorite": True}
+        return call_immich(payload, '/assets')
+    else:
+        log.debug("IMMICH_SET_FAVORITE not set, skipping favorite setting")
+        return None
 
 def logs_enabled():
     if JSON_PATH:
