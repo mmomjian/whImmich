@@ -31,11 +31,12 @@ def set_env():
     bool_accept = [ "true", "1", "yes", 1, True ]
 
     # Read in other env vars
-    global IMMICH_API_KEY , IMMICH_URL, IMMICH_ALBUM_ID , IMMICH_SET_FAVORITE
+    global IMMICH_API_KEY , IMMICH_URL, IMMICH_ALBUM_ID , IMMICH_SET_FAVORITE , LOG_FULL_JSON
     IMMICH_API_KEY = os.environ.get("IMMICH_API_KEY", "")
     IMMICH_URL = os.environ.get("IMMICH_URL", "")
     IMMICH_ALBUM_ID = os.environ.get("IMMICH_ALBUM_ID", "")
     IMMICH_SET_FAVORITE = os.environ.get("IMMICH_SET_FAVORITE", "false").lower() in bool_accept
+    LOG_FULL_JSON = os.environ.get("WHIMMICH_LOG_FULL_JSON", "false").lower() in bool_accept
 
     global SUBPATH , JSON_PATH , JSON_CLIENT_KEY , HOOK_MODE , LOG_ROTATE_HOURS
     SUBPATH = os.environ.get("WHIMMICH_SUBPATH", "")
@@ -173,8 +174,10 @@ def hook():
     add_fields = { "time_received": time_pretty, "time_received_unix": time_unix, "client_ip": ip, "client_name": client,
         "hook_json": [ data ], "multi_delay": None, "time_ended": None, "time_ended_unix": None }
 
-    send_log = { "hook_json": data }
-    send_log |= add_fields
+ #   send_log = { }
+ #   if WHIMMICH_LOG_FULL_JSON:
+ #       send_log |= { "hook_json": data }
+    send_log = add_fields
 
     log_file_contents("incoming", send_log, ip )
 
