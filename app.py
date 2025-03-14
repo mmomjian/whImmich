@@ -231,7 +231,7 @@ def rotate_assets(ids, add, client):
         time_diff = now - all_assets[client][-1]['time_received_unix']
         log.debug(f"time difference: {time_diff} seconds")
         if time_diff < DOUBLE_DELAY:
-            log.debug("time difference identified, processing as duplicate")
+            log.debug("very low time difference identified, processing as multi-image")
             all_assets[client][-1]['assets'].extend(current_assets['assets'])
             all_assets[client][-1]['hook_json'].extend(current_assets['hook_json']) # extend will add to existing list
             all_assets[client][-1]['multi_delay'] = time_diff
