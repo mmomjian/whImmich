@@ -20,6 +20,7 @@ log_levels = { "DEBUG": logging.DEBUG,
 logging.basicConfig( level = log_levels.get(LOG_LEVEL, logging.INFO),
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)] )
+
 log = logging.getLogger(__name__)
 log.debug("logging initialized")
 
@@ -43,7 +44,7 @@ def set_env():
     LOG_IP_TO_FILENAME = os.environ.get("WHIMMICH_LOG_IP_TO_FILENAME", "false").lower() in bool_accept
 
     global JSON_ACCEPT_VALUE , JSON_ACCEPT_KEY , JSON_ASSETID_KEY , JSON_ASSETID_SUBKEY , JSON_NEWASSET_VALUE
-    global API_KEY , KEEP_ASSET_LIST
+    global JSON_PREFETCH_VALUE , API_KEY , KEEP_ASSET_LIST
     JSON_ACCEPT_VALUE = os.environ.get("WHIMMICH_JSON_ACCEPT_VALUE", "")
     JSON_ACCEPT_KEY = os.environ.get("WHIMMICH_JSON_ACCEPT_KEY", "")
     JSON_ASSETID_KEY = os.environ.get("WHIMMICH_JSON_ASSETID_KEY", "")
@@ -63,7 +64,6 @@ def set_env():
     all_assets = {}
     next_asset = {}
     DEFAULT_CLIENT = 'unknown'
-    # DISABLE_CLIENT_TRACKING = os.environ.get("WHIMMICH_DISABLE_CLIENT_TRACKING", "false").lower() in bool_accept
 
     global JSON_UNAUTH , JSON_SUCCESS , JSON_ERROR
     JSON_UNAUTH = { "status": "unauthorized" }
@@ -71,7 +71,7 @@ def set_env():
     JSON_ERROR = { "status": "error" }
     return
 
-set_env()
+set_env() # must set before initiating Flask app
 app = Flask(__name__)
 log.debug("Flask app initialized")
 
