@@ -378,7 +378,10 @@ def handle_shutdown_signal(signum, frame):
 def pretty_time(timestamp):
     if timestamp <= 0:  # Handle invalid or unset timestamps
         return "Never"
-    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp)) # currently prints the pretty time in local time with no TZ included
+    try:
+        return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp)) # currently prints the pretty time in local time with no TZ included
+    except:
+        return "Never"
 
 def check_env():
     # Check for required or recommended env vars
